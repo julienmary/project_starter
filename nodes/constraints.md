@@ -3,7 +3,7 @@ title: Constraints
 status: draft
 priority: 0
 depends_on:
-  - nodes/purpose.md
+  - "[[nodes/purpose]]"
 ---
 
 # Constraints

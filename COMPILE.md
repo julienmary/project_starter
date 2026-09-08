@@ -3,7 +3,7 @@ title: Compilation prompt
 status: stable
 priority: 0
 depends_on:
-  - README.md
+  - "[[README]]"
 ---
 
 # COMPILE
@@ -19,7 +19,7 @@ This is not "make me a vault." It is a **compilation with a contract**:
 1. Fill `INDEX.md` (goal in one sentence, out of scope, 3 hard constraints, node table). Do not exceed ~80 lines.
 2. Fill `nodes/purpose.md` and `nodes/constraints.md`.
 3. Create **one file per responsibility** in `nodes/`, from `nodes/_template.md`. No monologue sliced into headings. Do not repeat the project intro in every node.
-4. Frontmatter everywhere: `title`, `status`, `priority`, `depends_on`.
+4. Frontmatter everywhere: `title`, `status`, `priority`, `depends_on`. Entries of `depends_on` are quoted wikilinks (`- "[[nodes/purpose]]"`).
 5. Explicit links between nodes (`[]()` or `[[wikilinks]]`) + a "read first" column in the index.
 6. `DECISIONS.md`: only what was **settled** in this thread, date + one-sentence rationale.
 7. `OPEN.md`: everything that was explored but not settled. Do not close items to look tidy.

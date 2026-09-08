@@ -63,7 +63,7 @@ It is a compilation **with a contract**. The AI must:
 - fill `INDEX.md` (goal in one sentence, out of scope, three hard constraints, node table), under ~80 lines
 - fill `nodes/purpose.md` and `nodes/constraints.md`
 - create one node per responsibility in `nodes/`, from `nodes/_template.md`, without repeating the project intro in each
-- put frontmatter everywhere (`title`, `status`, `priority`, `depends_on`)
+- put frontmatter everywhere (`title`, `status`, `priority`, `depends_on` as quoted wikilinks, so the graph view shows dependencies)
 - log only what was **settled** in `DECISIONS.md`, with date and rationale
 - log everything explored but **not settled** in `OPEN.md`
 - invent no stack, schedule or feature absent from the thread

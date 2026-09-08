@@ -2,6 +2,7 @@
 title: Agent contract
 status: stable
 priority: 0
+depends_on: []
 ---
 
 # AGENTS.md
@@ -28,6 +29,7 @@ HTML, slides, mockups = derived artifacts. You may *generate* them. You do not *
 
 - One file = one responsibility. Not a monologue sliced into headings.
 - Frontmatter required: `title`, `status`, `priority`, `depends_on` (list, may be empty).
+- `depends_on` entries are quoted wikilinks: `- "[[nodes/purpose]]"`. Plain paths are not links for Obsidian and stay out of the graph.
 - `status` ∈ `draft | open | decided | stable | deprecated`.
 - Markdown links or wikilinks to neighboring nodes. No copy-paste of the same paragraph.
 - If you create a node: start from `nodes/_template.md`.

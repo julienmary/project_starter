@@ -8,6 +8,5 @@ Thumbs.db
 .idea/
 .vscode/
 
-# Obsidian per-user state (keep the vault, not the workspace)
-.obsidian/workspace*.json
-.obsidian/cache
+# Obsidian config (per user, not part of the template)
+.obsidian/
