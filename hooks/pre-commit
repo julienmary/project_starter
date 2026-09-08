@@ -1,0 +1,4 @@
+#!/bin/sh
+# Git pre-commit hook: refuse the commit if the vault fails its mechanical checks.
+# Enable once per clone:  git config core.hooksPath hooks
+exec "$(git rev-parse --show-toplevel)/vault-check.sh"

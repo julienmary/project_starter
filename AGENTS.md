@@ -36,6 +36,12 @@ HTML, slides, mockups = derived artifacts. You may *generate* them. You do not *
 - If you settle something: one line in [[DECISIONS]], date + short rationale.
 - If you find a hole: one line in [[OPEN]], not a phantom decision.
 
+## Committing
+
+- Run `./vault-check.sh` before committing. A failing check is a problem to fix in the vault, not to bypass.
+- A commit touching files outside the vault carries a trailer: `Vault: updated` if a node, [[DECISIONS]] or [[OPEN]] changed with it, `Vault: unchanged` if you reread the nodes this change concerns and they still hold.
+- `Vault: unchanged` is a claim made after reading. Never write it by reflex.
+
 ## Forbidden
 
 - Novel-vault: repeating the project intro in every node.

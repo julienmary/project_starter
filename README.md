@@ -39,7 +39,10 @@ git clone <this-repo> my-project
 cd my-project
 rm -rf .git
 git init
+git config core.hooksPath hooks
 ```
+
+The last line enables the versioned pre-commit hook, which runs `vault-check.sh` before every commit. See step 5.
 
 ### 1. Explore, as usual
 
@@ -96,6 +99,25 @@ Example. Task: "implement the invoice export". The agent loads:
 
 Four files. Auth, UI and the rest stay on disk. If a decision is missing, the agent checks `DECISIONS.md`, then `OPEN.md`. It does not invent consensus.
 
+### 5. Keep the vault honest
+
+The vault drifts the moment the code moves and nobody reopens `constraints.md`. Three months later it is a second stale `PROMPT.md` next to the code. Two mechanisms hold it, both wired to the commit.
+
+**Mechanical checks, every commit.** `vault-check.sh` verifies what a script can verify: frontmatter on every page, `status` in the allowed set, `depends_on` as quoted wikilinks that resolve, every link resolving, every `status: decided` backed by a line in `DECISIONS.md`, `INDEX.md` under 80 lines with a row per node, no `TODO` outside drafts. The pre-commit hook enabled in step 0 runs it and refuses the commit on failure. Run it by hand any time:
+
+```bash
+./vault-check.sh
+```
+
+**The drift question, every commit that touches non-vault files.** No script can tell whether a change to the code makes a node false. The person or agent committing can. So every commit that touches files outside the vault carries a trailer in its message:
+
+```
+Vault: updated      the change touched a contract, a node or DECISIONS/OPEN was edited
+Vault: unchanged    the nodes this change concerns were reread and still hold
+```
+
+`unchanged` is a claim, made after reading, not a default. The trailer lives in `git log`, so the claim is auditable. Agents get the question pushed to them: a Claude Code hook blocks a `git commit` that has non-vault files staged, no vault file staged and no trailer, and asks for one.
+
 ## Tree
 
 ```
@@ -106,6 +128,9 @@ project_starter/
 ├── INDEX.md                  # thin project map, to fill
 ├── DECISIONS.md              # what was settled, to fill
 ├── OPEN.md                   # what is not settled, to fill
+├── vault-check.sh            # mechanical checks, run by the hook and by hand
+├── hooks/
+│   └── pre-commit            # runs vault-check.sh, enabled by git config core.hooksPath hooks
 ├── LICENSE
 ├── .gitignore
 └── nodes/
@@ -116,7 +141,7 @@ project_starter/
 
 Two kinds of files:
 
-- **Method files**, stable, not meant to change per project: `README.md`, `AGENTS.md`, `COMPILE.md`, `nodes/_template.md`.
+- **Method files**, stable, not meant to change per project: `README.md`, `AGENTS.md`, `COMPILE.md`, `nodes/_template.md`, `vault-check.sh`, `hooks/pre-commit`.
 - **Project files**, produced by the compilation and refined by the cold review: `INDEX.md`, `DECISIONS.md`, `OPEN.md`, `nodes/purpose.md`, `nodes/constraints.md`, plus every domain node.
 
 Domain nodes (`auth`, `billing`, `ui`...) are **not** in the template. They are born from the discussion. One file = one responsibility.

@@ -17,6 +17,7 @@ Format, one line per decision, newest first:
 
 ## Log
 
+- 2026-09-09 — Vault integrity is enforced at commit time: `vault-check.sh` for what a script can check, a `Vault: updated|unchanged` commit trailer for what needs judgement. Rules are not enough against drift.
 - 2026-09-08 — `depends_on` entries are quoted wikilinks, not paths. Obsidian then shows them in graph and backlinks; agents read both forms.
 - 2026-09-08 — README.md absorbs METHODOLOGY.md. One source for the method, no duplicated thesis.
 - 2026-09-08 — Source of truth is a Markdown graph (vault), not the transcript, not HTML. See [[README]].
