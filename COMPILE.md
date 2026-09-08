@@ -3,7 +3,7 @@ title: Compilation prompt
 status: stable
 priority: 0
 depends_on:
-  - METHODOLOGY.md
+  - README.md
 ---
 
 # COMPILE
