@@ -10,3 +10,6 @@ Thumbs.db
 
 # Obsidian config (per user, not part of the template)
 .obsidian/
+
+# Claude Code personal overrides (.claude/settings.json and the hook symlink are versioned)
+.claude/settings.local.json

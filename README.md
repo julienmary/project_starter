@@ -39,10 +39,10 @@ git clone <this-repo> my-project
 cd my-project
 rm -rf .git
 git init
-git config core.hooksPath hooks
+./install.sh
 ```
 
-The last line enables the versioned pre-commit hook, which runs `vault-check.sh` before every commit. See step 5.
+`install.sh` wires the checks of step 5 to git and to Claude Code. It shows you the header of the Claude Code hook, then asks where to put it: in the project (`.claude/`, versioned with it) or globally (`~/.claude/`, every repo on the machine). Read that header before choosing. Linux and macOS.
 
 ### 1. Explore, as usual
 
@@ -116,7 +116,7 @@ Vault: updated      the change touched a contract, a node or DECISIONS/OPEN was 
 Vault: unchanged    the nodes this change concerns were reread and still hold
 ```
 
-`unchanged` is a claim, made after reading, not a default. The trailer lives in `git log`, so the claim is auditable. Agents get the question pushed to them: a Claude Code hook blocks a `git commit` that has non-vault files staged, no vault file staged and no trailer, and asks for one.
+`unchanged` is a claim, made after reading, not a default. The trailer lives in `git log`, so the claim is auditable. Agents get the question pushed to them: `hooks/claude-pre-commit.sh`, installed by `install.sh` as a Claude Code hook, blocks a `git commit` that has non-vault files staged, no vault file staged and no trailer, and asks for one. Its header explains the problem it solves, what it refuses, and its limits. It also runs `vault-check.sh` and refuses a commit while a tracked file matches `.gitignore`.
 
 ## Tree
 
@@ -128,9 +128,12 @@ project_starter/
 ├── INDEX.md                  # thin project map, to fill
 ├── DECISIONS.md              # what was settled, to fill
 ├── OPEN.md                   # what is not settled, to fill
-├── vault-check.sh            # mechanical checks, run by the hook and by hand
+├── vault-check.sh            # mechanical checks, run by the hooks and by hand
+├── install.sh                # wires the hooks to git and Claude Code, project or global
 ├── hooks/
-│   └── pre-commit            # runs vault-check.sh, enabled by git config core.hooksPath hooks
+│   ├── pre-commit            # git hook: runs vault-check.sh
+│   └── claude-pre-commit.sh  # Claude Code hook: vault-check.sh + the drift question
+├── .claude/                  # created by install.sh in project scope: settings.json + hook symlink
 ├── LICENSE
 ├── .gitignore
 └── nodes/
@@ -141,7 +144,7 @@ project_starter/
 
 Two kinds of files:
 
-- **Method files**, stable, not meant to change per project: `README.md`, `AGENTS.md`, `COMPILE.md`, `nodes/_template.md`, `vault-check.sh`, `hooks/pre-commit`.
+- **Method files**, stable, not meant to change per project: `README.md`, `AGENTS.md`, `COMPILE.md`, `nodes/_template.md`, `vault-check.sh`, `install.sh`, `hooks/`.
 - **Project files**, produced by the compilation and refined by the cold review: `INDEX.md`, `DECISIONS.md`, `OPEN.md`, `nodes/purpose.md`, `nodes/constraints.md`, plus every domain node.
 
 Domain nodes (`auth`, `billing`, `ui`...) are **not** in the template. They are born from the discussion. One file = one responsibility.

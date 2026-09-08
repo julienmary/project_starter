@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Mechanical checks on the Markdown vault. Exit 1 on the first category of failure,
-# after listing every problem found. Runs from any directory.
+# after listing every problem found. Runs from any directory, on Linux and macOS
+# (bash 3.2, BSD awk/sed/grep/find).
 #
 # Checked:
 #   - frontmatter present on every vault page, with title / status / priority / depends_on
@@ -46,7 +47,7 @@ resolve() {               # resolve TARGET (no brackets): exact path, else uniqu
   [ -z "$t" ] && return 0                       # [[#heading]] is a self link
   [ -f "$t.md" ] && return 0
   local n
-  n=$(find . -path ./.git -prune -o -name "$(basename "$t").md" -print | wc -l)
+  n=$(( $(find . -path ./.git -prune -o -name "$(basename "$t").md" -print | wc -l) ))  # $(( )) strips BSD wc padding
   [ "$n" -eq 1 ]
 }
 
@@ -118,7 +119,7 @@ done
 # --- index -------------------------------------------------------------------
 
 if [ -f INDEX.md ]; then
-  lines=$(wc -l < INDEX.md)
+  lines=$(( $(wc -l < INDEX.md) ))
   [ "$lines" -le "$MAX_INDEX_LINES" ] || fail "INDEX.md: $lines lines, max $MAX_INDEX_LINES; push detail down into nodes/"
   for f in nodes/*.md; do
     [ -f "$f" ] || continue
