@@ -200,8 +200,6 @@ if [ "$ASKED" -eq 1 ]; then
             REASON="  'Vault: unchanged' must say what was reread: Vault: unchanged (reread: nodes/x, nodes/y)"$'\n' ;;
         updated)
             REASON="  'Vault: updated' but this commit carries no change to INDEX.md, DECISIONS.md, OPEN.md or nodes/"$'\n' ;;
-        "")
-            REASON="  no Vault: trailer in the message"$'\n' ;;
     esac
 fi
 
@@ -209,7 +207,10 @@ printf '%s' "$FP" > "$STATE"
 NODES=$(grep -oE '\[\[nodes/[^]|#]+' INDEX.md 2>/dev/null | sed 's/^\[\[//' | sort -u | sed 's/^/  /')
 [ -z "$NODES" ] && NODES="  (INDEX.md maps no domain node yet)"
 
-if [ "$ASKED" -eq 1 ]; then
+# An answer that is present but wrong gets the reason. No answer at all gets the
+# full question again, even if it was already asked: the agent may not have seen
+# it (two registrations of this hook, a lost message).
+if [ "$ASKED" -eq 1 ] && [ -n "$TRAILER" ]; then
     cat >&2 <<MSG
 BLOCKED: the vault question was asked for this change and the answer is not valid.
 $(printf '%s' "$REASON")

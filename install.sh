@@ -164,6 +164,39 @@ else
     exit 0
 fi
 
+# The same hook registered in the other scope (project vs global) runs twice
+# per commit, and the second run answers a question the agent never saw.
+MARKER='claude-pre-commit.sh: Claude Code hook'
+list_bash_hooks() {           # list_bash_hooks SETTINGS_FILE -> one command per line
+    [ -f "$1" ] || return 0
+    if command -v python3 >/dev/null 2>&1; then
+        python3 - "$1" <<'PY'
+import json, sys
+try:
+    data = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+for entry in data.get("hooks", {}).get("PreToolUse", []):
+    if entry.get("matcher") == "Bash":
+        for h in entry.get("hooks", []):
+            print(h.get("command", ""))
+PY
+    else
+        jq -r '.hooks.PreToolUse[]? | select(.matcher=="Bash") | .hooks[]?.command' "$1" 2>/dev/null
+    fi
+}
+if [ "$SCOPE" = "project" ]; then OTHER="$HOME/.claude/settings.json"; else OTHER=".claude/settings.json"; fi
+while IFS= read -r other_cmd; do
+    [ -z "$other_cmd" ] && continue
+    f=${other_cmd//\"/}; f=${f/#\~/$HOME}; f=${f//\$HOME/$HOME}; f=${f//\$CLAUDE_PROJECT_DIR/$PWD}
+    if [ -f "$f" ] && grep -q "$MARKER" "$f" 2>/dev/null; then
+        say "warning: the same hook is also registered in $OTHER as $other_cmd"
+        say "         it will run twice on every commit here; remove one of the two registrations"
+    fi
+done <<EOF_HOOKS
+$(list_bash_hooks "$OTHER")
+EOF_HOOKS
+
 case "$RESULT" in
     exists*) say "settings: $SETTINGS already registers this hook" ;;
     added*)  say "settings: hook registered in $SETTINGS" ;;
