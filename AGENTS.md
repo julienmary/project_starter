@@ -39,8 +39,9 @@ HTML, slides, mockups = derived artifacts. You may *generate* them. You do not *
 ## Committing
 
 - Run `./vault-check.sh` before committing. A failing check is a problem to fix in the vault, not to bypass.
-- A commit touching files outside the vault carries a trailer: `Vault: updated` if a node, [[DECISIONS]] or [[OPEN]] changed with it, `Vault: unchanged` if you reread the nodes this change concerns and they still hold.
-- `Vault: unchanged` is a claim made after reading. Never write it by reflex.
+- A commit that changes code without vault content is refused once and the question is put to you: does the vault still tell the truth? Do not pre-empt it with a trailer; read first.
+- Answer on the retry, on its own line: `Vault: unchanged (reread: nodes/x, nodes/y)`, naming the pages you actually reread. Or edit the node, [[DECISIONS]] or [[OPEN]], commit them with the code, and mark it `Vault: updated`.
+- What you name after `reread:` is a claim in the history. Name only what you read.
 
 ## Forbidden
 

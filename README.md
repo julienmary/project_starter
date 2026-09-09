@@ -109,14 +109,15 @@ The vault drifts the moment the code moves and nobody reopens `constraints.md`. 
 ./vault-check.sh
 ```
 
-**The drift question, every commit that touches non-vault files.** No script can tell whether a change to the code makes a node false. The person or agent committing can. So every commit that touches files outside the vault carries a trailer in its message:
+**The drift question, every commit that touches code without touching the vault.** No script can tell whether a change to the code makes a node false. The agent committing can, if it is asked at the right moment. `hooks/claude-pre-commit.sh`, installed by `install.sh` as a Claude Code hook, asks it, and asks first: a commit that changes project files but no vault content is refused on its first attempt whatever the message says, with the list of nodes mapped in `INDEX.md`. The retry on the same change is accepted only if the message answers on its own line:
 
 ```
-Vault: updated      the change touched a contract, a node or DECISIONS/OPEN was edited
-Vault: unchanged    the nodes this change concerns were reread and still hold
+Vault: unchanged (reread: nodes/billing, nodes/constraints)
 ```
 
-`unchanged` is a claim, made after reading, not a default. The trailer lives in `git log`, so the claim is auditable. Agents get the question pushed to them: `hooks/claude-pre-commit.sh`, installed by `install.sh` as a Claude Code hook, blocks a `git commit` that has non-vault files staged, no vault file staged and no trailer, and asks for one. Its header explains the problem it solves, what it refuses, and its limits. It also runs `vault-check.sh` and refuses a commit while a tracked file matches `.gitignore`.
+naming the pages that were reread and still hold. A bare `Vault: unchanged` is refused, so is a page that does not exist. Change the code again and the question comes back. A commit where a node, `DECISIONS.md` or `OPEN.md` moves with the code is not asked, the diff is the proof; mark it `Vault: updated` for the log. The answer lives in `git log`, so what an agent claims to have reread stays auditable.
+
+The hook's header explains the problem it solves, what it refuses, and its limits. It also runs `vault-check.sh` and refuses a commit while a tracked file matches `.gitignore`.
 
 ## Tree
 

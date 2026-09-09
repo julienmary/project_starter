@@ -17,6 +17,7 @@ Format, one line per decision, newest first:
 
 ## Log
 
+- 2026-09-09 — The drift question is asked first, never pre-empted: first commit attempt on code without vault content is refused, the retry must name the pages reread (`Vault: unchanged (reread: ...)`). A trailer written by reflex is worth nothing.
 - 2026-09-09 — The Claude Code hook ships in `hooks/` with `install.sh`, project or global scope, Linux and macOS. A drift check that depends on one machine's config is not part of the method.
 - 2026-09-09 — Vault integrity is enforced at commit time: `vault-check.sh` for what a script can check, a `Vault: updated|unchanged` commit trailer for what needs judgement. Rules are not enough against drift.
 - 2026-09-08 — `depends_on` entries are quoted wikilinks, not paths. Obsidian then shows them in graph and backlinks; agents read both forms.

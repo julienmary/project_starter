@@ -15,15 +15,23 @@
 #
 #   2. What needs judgement: "does this change to the code make a node false?"
 #      No script can answer. The agent can, if it is asked at the right moment.
-#      This hook asks. When a commit touches project files but no vault content
-#      (INDEX.md, DECISIONS.md, OPEN.md, nodes/), it refuses the commit until the
-#      message carries a trailer on its own line:
+#      This hook asks, and it asks first. When a commit touches project files but
+#      no vault content (INDEX.md, DECISIONS.md, OPEN.md, nodes/), the first
+#      attempt is refused whatever the message says, and the question is put to
+#      the agent. A second attempt on the same change is accepted only if the
+#      message answers on its own line:
 #
-#         Vault: updated     a node, DECISIONS.md or OPEN.md changed with the code
-#         Vault: unchanged   the nodes this change concerns were reread and still hold
+#         Vault: unchanged (reread: nodes/billing, nodes/constraints)
 #
-#      "unchanged" is a claim made after reading, not a default. The trailer ends
-#      up in git log, so the claim is auditable later.
+#      naming the vault pages that were reread and still hold. A bare
+#      "Vault: unchanged" is refused: the answer has to say what was read.
+#      "Vault: updated" is for commits where a node, DECISIONS.md or OPEN.md
+#      moves with the code; those pass without being asked, the diff is the proof.
+#
+#      The question is remembered in .git/vault-question as a fingerprint of the
+#      project files about to be committed. Change the code again and the
+#      question is asked again. The trailer ends up in git log, so the claim
+#      and what it says was reread stay auditable.
 #
 #   As a side benefit it also refuses a commit while a tracked file matches
 #   .gitignore, which is how private files leak into public repos.
@@ -118,9 +126,11 @@ is_method_file()   { [[ "$1" =~ ^(README\.md|AGENTS\.md|COMPILE\.md|LICENSE|\.gi
 # Which files will this commit take? Staged ones, unless the command stages
 # more at execution time (git add in the same command, -a / --all / -am),
 # in which case every change in the working tree is considered. Conservative:
-# a false positive only asks for a trailer.
+# a false positive only asks the question.
 STAGES_ALL='git commit[^|;&]*( -a| --all| -am| -a[a-z])'
+STAGE_MODE="index"
 if [[ "$COMMAND" == *"git add"* ]] || [[ "$COMMAND" =~ $STAGES_ALL ]]; then
+    STAGE_MODE="worktree"
     FILES=$(git status --porcelain --untracked-files=all | cut -c4- | sed 's/^.* -> //')
 else
     FILES=$(git diff --cached --name-only)
@@ -133,40 +143,98 @@ while IFS= read -r f; do
     if is_vault_content "$f"; then
         VAULT_TOUCHED=1
     elif ! is_method_file "$f"; then
-        PROJECT="$PROJECT  $f"$'\n'
+        PROJECT="$PROJECT$f"$'\n'
     fi
 done <<< "$FILES"
 
 [ -z "$PROJECT" ] && exit 0          # nothing outside the vault: no question
 [ "$VAULT_TOUCHED" -eq 1 ] && exit 0 # vault content moves with the change
 
-# Trailer present in the commit message given on the command line?
-# Own line (heredoc, multi-line -m) or a whole -m argument.
-TRAILER_LINE='^[[:space:]]*Vault: (updated|unchanged)[[:space:]]*["'"'"']?[[:space:]]*$'
-TRAILER_ARG='-m[[:space:]]+["'"'"']Vault: (updated|unchanged)["'"'"']'
-if printf '%s\n' "$COMMAND" | grep -qE "$TRAILER_LINE" || [[ "$COMMAND" =~ $TRAILER_ARG ]]; then
-    exit 0
-fi
-# --amend without a new message: the existing message may already carry it.
-if [[ "$COMMAND" == *"--amend"* ]] && [[ "$COMMAND" != *" -m"* ]] && [[ "$COMMAND" != *"-F"* ]] \
-   && git log -1 --format=%B 2>/dev/null | grep -qE '^Vault: (updated|unchanged)$'; then
-    exit 0
+# Fingerprint of the project change about to be committed: path + blob id of
+# what will be committed. Same fingerprint on the retry = same question.
+fingerprint() {
+    local f blob
+    while IFS= read -r f; do
+        [ -z "$f" ] && continue
+        if [ "$STAGE_MODE" = "index" ]; then
+            blob=$(git ls-files -s -- "$f" | cut -d' ' -f2)
+        elif [ -f "$f" ]; then
+            blob=$(git hash-object -- "$f")
+        else
+            blob="deleted"
+        fi
+        printf '%s %s\n' "$f" "${blob:-deleted}"
+    done <<< "$PROJECT" | git hash-object --stdin
+}
+FP=$(fingerprint)
+STATE="$(git rev-parse --git-dir)/vault-question"
+ASKED=0
+[ -f "$STATE" ] && [ "$(cat "$STATE")" = "$FP" ] && ASKED=1
+
+# The answer: a "Vault: ..." trailer in the message. Own line (heredoc,
+# multi-line -m), a whole -m argument, or the previous message on --amend
+# without a new one.
+Q='["'"'"']'
+T='(updated|unchanged( \(reread: [^)]+\))?)'
+TRAILER=$(printf '%s\n' "$COMMAND" | sed -nE "s/^[[:space:]]*Vault: $T[[:space:]]*$Q?[[:space:]]*\$/\1/p" | head -n1)
+[ -z "$TRAILER" ] && TRAILER=$(printf '%s\n' "$COMMAND" | sed -nE "s/.*-m[[:space:]]+${Q}Vault: $T$Q.*/\1/p" | head -n1)
+if [ -z "$TRAILER" ] && [[ "$COMMAND" == *"--amend"* ]] && [[ "$COMMAND" != *" -m"* ]] && [[ "$COMMAND" != *"-F"* ]]; then
+    TRAILER=$(git log -1 --format=%B 2>/dev/null | sed -nE "s/^Vault: $T\$/\1/p" | head -n1)
 fi
 
-cat >&2 <<MSG
-BLOCKED: this commit changes project files but no vault content, and carries no Vault: trailer.
+# Validate the answer. Only "unchanged (reread: ...)" with existing pages is a
+# valid answer here: "updated" without vault content in the commit is a lie.
+REASON=""
+if [ "$ASKED" -eq 1 ]; then
+    case "$TRAILER" in
+        "unchanged (reread: "*)
+            LIST=${TRAILER#unchanged (reread: }; LIST=${LIST%)}
+            IFS=',' read -r -a PAGES <<< "$LIST"
+            for pg in "${PAGES[@]}"; do
+                pg=$(printf '%s' "$pg" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+                case "$pg" in *.md) ;; *) pg="$pg.md" ;; esac
+                [ -f "$pg" ] || REASON="$REASON  '$pg' is not a page of this vault"$'\n'
+            done
+            [ -z "$REASON" ] && exit 0 ;;
+        unchanged)
+            REASON="  'Vault: unchanged' must say what was reread: Vault: unchanged (reread: nodes/x, nodes/y)"$'\n' ;;
+        updated)
+            REASON="  'Vault: updated' but this commit carries no change to INDEX.md, DECISIONS.md, OPEN.md or nodes/"$'\n' ;;
+        "")
+            REASON="  no Vault: trailer in the message"$'\n' ;;
+    esac
+fi
+
+printf '%s' "$FP" > "$STATE"
+NODES=$(grep -oE '\[\[nodes/[^]|#]+' INDEX.md 2>/dev/null | sed 's/^\[\[//' | sort -u | sed 's/^/  /')
+[ -z "$NODES" ] && NODES="  (INDEX.md maps no domain node yet)"
+
+if [ "$ASKED" -eq 1 ]; then
+    cat >&2 <<MSG
+BLOCKED: the vault question was asked for this change and the answer is not valid.
+$(printf '%s' "$REASON")
+Answer on its own line at the end of the commit message:
+  Vault: unchanged (reread: nodes/x, nodes/y)   pages you reread, paths relative to the repo root
+or edit the vault (a node, DECISIONS.md or OPEN.md) and commit it with the code under "Vault: updated".
+MSG
+else
+    cat >&2 <<MSG
+BLOCKED: this commit changes project files but no vault content. Does the vault still tell the truth?
 
 Files outside the vault:
-$(printf '%s' "$PROJECT")
-Before committing, decide whether the vault still tells the truth:
-  1. Open INDEX.md, find the nodes that cover these files.
-  2. Reread those nodes and constraints.md. If the change touches a contract,
-     a constraint or a decision, edit the node and add a line to DECISIONS.md
-     or OPEN.md, then commit with a "Vault: updated" trailer.
-  3. If they still hold, say so explicitly with a "Vault: unchanged" trailer.
-     It is a claim made after reading, not a default.
+$(printf '%s' "$PROJECT" | sed 's/^/  /')
+Nodes mapped in INDEX.md:
+$NODES
+Before committing:
+  1. Find in INDEX.md the nodes that cover these files. Reread them and nodes/constraints.md.
+  2. If the change touches a contract, a constraint or a decision: edit the node, add a
+     line to DECISIONS.md or OPEN.md, commit them with the code under "Vault: updated".
+  3. If they still hold, commit again with the same change and answer on its own line:
+       Vault: unchanged (reread: nodes/x, nodes/y)
+     naming the pages you reread. A bare "Vault: unchanged" is refused.
+  4. No node covers these files? That is a hole: add it to OPEN.md or create the node.
 
-Put the trailer on its own line at the end of the message, in a heredoc or -m.
-A message read from a file (-F path) is not inspected: use -F - with a heredoc instead.
+A message read from a file (-F path) is not inspected: use -F - with a heredoc, or -m.
 MSG
+fi
 exit 2
