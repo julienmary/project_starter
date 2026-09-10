@@ -164,8 +164,16 @@ else
     exit 0
 fi
 
-# The same hook registered in the other scope (project vs global) runs twice
-# per commit, and the second run answers a question the agent never saw.
+# The same hook registered in both scopes (project and global) runs twice per
+# commit. That is harmless in itself: the hook is idempotent, because its state is
+# a fingerprint it overwrites rather than a token it consumes, so two runs on one
+# command reach the same verdict.
+#
+# What is NOT harmless is the two registrations pointing at DIFFERENT VERSIONS of
+# the hook. The global scope installs a copy, so it goes stale the moment the
+# method moves; the project scope is a symlink and stays current. Then the older
+# copy silently applies weaker checks. So the warning below reports the duplicate,
+# and says whether the two files actually differ - that is the part worth acting on.
 MARKER='claude-pre-commit.sh: Claude Code hook'
 list_bash_hooks() {           # list_bash_hooks SETTINGS_FILE -> one command per line
     [ -f "$1" ] || return 0
@@ -191,7 +199,15 @@ while IFS= read -r other_cmd; do
     f=${other_cmd//\"/}; f=${f/#\~/$HOME}; f=${f//\$HOME/$HOME}; f=${f//\$CLAUDE_PROJECT_DIR/$PWD}
     if [ -f "$f" ] && grep -q "$MARKER" "$f" 2>/dev/null; then
         say "warning: the same hook is also registered in $OTHER as $other_cmd"
-        say "         it will run twice on every commit here; remove one of the two registrations"
+        if cmp -s "$f" "$HOOK_SRC"; then
+            say "         it runs twice per commit. Same version as $HOOK_SRC, so the"
+            say "         verdict is identical (the hook is idempotent). Tidy up if you like."
+        else
+            say "         it runs twice per commit AND IT IS A DIFFERENT VERSION of the hook"
+            say "         than $HOOK_SRC. Refresh it or drop one registration: an older copy"
+            say "         applies weaker checks without saying so."
+            say "         diff: $(diff "$f" "$HOOK_SRC" | grep -c '^[<>]') changed lines"
+        fi
     fi
 done <<EOF_HOOKS
 $(list_bash_hooks "$OTHER")

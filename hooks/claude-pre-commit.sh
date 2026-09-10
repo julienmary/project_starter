@@ -33,6 +33,24 @@
 #      question is asked again. The trailer ends up in git log, so the claim
 #      and what it says was reread stay auditable.
 #
+#   3. Whether this project should have a vault at all. Installed globally, this
+#      hook also runs in repositories that have none. Staying silent there means
+#      the method only ever reaches projects where someone already thought of it.
+#      So when a repository without a vault has grown past a threshold
+#      (VAULT_OFFER_MIN_COMMITS commits and VAULT_OFFER_MIN_FILES tracked files,
+#      12 and 15 by default), the question is put once:
+#
+#         Vault: adopting            setting one up now
+#         Vault: skip (one-shot)     not that kind of project
+#         Vault: skip (never)        never ask again in this clone
+#
+#      Below the threshold it says nothing: a vault is friction on a one-shot
+#      task, and a hook that nags on throwaway repositories gets uninstalled.
+#      The answer is remembered in .git/vault-declined, with the size at which
+#      it was declined - the question returns only if the repository triples,
+#      which is the "it grew into a real project after all" case. VAULT_OFFER=0
+#      turns it off entirely.
+#
 #   As a side benefit it also refuses a commit while a tracked file matches
 #   .gitignore, which is how private files leak into public repos.
 #
@@ -41,8 +59,8 @@
 #   Claude Code calls it as a PreToolUse hook on the Bash tool, with a JSON object
 #   on stdin. Only commands containing "git commit" are inspected. Exit 2 blocks
 #   the command and hands stderr back to the agent, which then fixes the vault or
-#   writes the trailer. Repositories without a vault-check.sh at their root are
-#   left alone, except for the .gitignore check.
+#   writes the trailer. A repository without a vault-check.sh at its root gets the
+#   .gitignore check and, past the size threshold, the question in point 3.
 #
 #   Install with ./install.sh (project or global scope). Needs jq or python3 to
 #   read the JSON input. Runs on Linux and macOS (bash 3.2, BSD tools).
@@ -104,9 +122,92 @@ if [ -n "$LEAKED" ]; then
 fi
 
 # ---------------------------------------------------------------------------
-# 2. Vault repos only
+# 2. No vault here: offer one, once, and only when the project deserves it
+#
+#    A vault earns its cost on a project that accumulates decisions. On a
+#    one-shot task it is pure friction, and a hook that nags on every throwaway
+#    repository gets uninstalled. So the question is put only when the
+#    repository has visible substance, it is asked once, and the answer is
+#    remembered in .git/ (a local decision, not something to commit).
+#
+#    Tunable: VAULT_OFFER=0 disables it, VAULT_OFFER_MIN_COMMITS and
+#    VAULT_OFFER_MIN_FILES move the threshold, VAULT_STARTER points at the
+#    method directory.
 # ---------------------------------------------------------------------------
-[ -x "$TOP/vault-check.sh" ] || exit 0
+if [ ! -x "$TOP/vault-check.sh" ]; then
+    [ "${VAULT_OFFER:-1}" = "0" ] && exit 0
+
+    MIN_COMMITS=${VAULT_OFFER_MIN_COMMITS:-12}
+    MIN_FILES=${VAULT_OFFER_MIN_FILES:-15}
+    COMMITS=$(git rev-list --count HEAD 2>/dev/null) || COMMITS=0
+    FILES=$(( $(git ls-files 2>/dev/null | wc -l) ))   # $(( )) strips BSD wc padding
+
+    # Below the threshold this is a one-shot task. Say nothing.
+    [ "${COMMITS:-0}" -lt "$MIN_COMMITS" ] && exit 0
+    [ "$FILES" -lt "$MIN_FILES" ] && exit 0
+
+    # Already answered? "never" is final; a number is the size at which it was
+    # declined, and the question comes back only if the project has since
+    # tripled - that is the "it grew into a real project after all" case.
+    DECLINED="$(git rev-parse --git-dir)/vault-declined"
+    if [ -f "$DECLINED" ]; then
+        WAS=$(cat "$DECLINED" 2>/dev/null)
+        [ "$WAS" = "never" ] && exit 0
+        case "$WAS" in
+            ''|*[!0-9]*) WAS=$COMMITS ;;                       # unreadable: treat as now
+        esac
+        [ "$COMMITS" -lt $((WAS * 3)) ] && exit 0
+    fi
+
+    # The answer, same trailer namespace as the drift question.
+    OQ='["'"'"']'
+    OT='(adopting|skip \([^)]+\))'
+    ANSWER=$(printf '%s\n' "$COMMAND" | sed -nE "s/^[[:space:]]*Vault: $OT[[:space:]]*$OQ?[[:space:]]*\$/\1/p" | head -n1)
+    [ -z "$ANSWER" ] && ANSWER=$(printf '%s\n' "$COMMAND" | sed -nE "s/.*-m[[:space:]]+${OQ}Vault: $OT$OQ.*/\1/p" | head -n1)
+
+    case "$ANSWER" in
+        adopting)
+            exit 0 ;;                    # let it through; asked again until the vault exists
+        "skip (never)")
+            printf 'never\n' > "$DECLINED"; exit 0 ;;
+        "skip ("*)
+            printf '%s\n' "$COMMITS" > "$DECLINED"; exit 0 ;;
+    esac
+
+    STARTER=${VAULT_STARTER:-$HOME/share/project_starter}
+    if [ -d "$STARTER" ]; then
+        HOW="  cp -r $STARTER/{AGENTS.md,COMPILE.md,INDEX.md,DECISIONS.md,OPEN.md,nodes,hooks,vault-check.sh,install.sh} .
+  then follow COMPILE.md to compile this project's design into the nodes,
+  and run ./install.sh last (it wires this hook, which would otherwise refuse
+  the vault's own first commits)."
+    else
+        HOW="  the project_starter method directory was not found; set VAULT_STARTER to it."
+    fi
+
+    cat >&2 <<MSG
+BLOCKED once: this repository has $COMMITS commits and $FILES tracked files, and no
+vault. At this size the design decisions exist somewhere - a thread, a README, your
+head - and nothing keeps them true. Is this project worth one?
+
+A vault is worth it when the project accumulates decisions that a later agent must
+not reopen. It is not worth it for a one-shot task.
+
+Answer on its own line at the end of the commit message:
+
+  Vault: adopting                 you are setting one up now; this commit passes and
+                                  the question returns until vault-check.sh exists
+  Vault: skip (one-shot)          not that kind of project. Remembered; asked again
+                                  only if the repository triples in size
+  Vault: skip (never)             never ask again in this clone
+
+Any reason works in the parentheses; it lands in git log, so the choice stays
+auditable.
+
+To set one up:
+$HOW
+MSG
+    exit 2
+fi
 
 # 2a. Mechanical checks
 if ! CHECK=$("$TOP/vault-check.sh" 2>&1); then

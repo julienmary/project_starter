@@ -117,7 +117,19 @@ Vault: unchanged (reread: nodes/billing, nodes/constraints)
 
 naming the pages that were reread and still hold. A bare `Vault: unchanged` is refused, so is a page that does not exist. Change the code again and the question comes back. A commit where a node, `DECISIONS.md` or `OPEN.md` moves with the code is not asked, the diff is the proof; mark it `Vault: updated` for the log. The answer lives in `git log`, so what an agent claims to have reread stays auditable.
 
+**The adoption question, in repositories that have no vault.** Installed globally, the hook also runs where there is no vault at all. Staying silent there means the method only ever reaches projects where someone already thought of it. So once a vaultless repository has visible substance — 12 commits and 15 tracked files by default — the question is put once:
+
+```
+Vault: adopting              setting one up now; asked again until vault-check.sh exists
+Vault: skip (one-shot)       not that kind of project
+Vault: skip (never)          never ask again in this clone
+```
+
+Below that threshold it says nothing. A vault is friction on a one-shot task, and a hook that nags on throwaway repositories gets uninstalled. The answer is remembered in `.git/vault-declined` together with the size at which it was declined, so the question returns only if the repository triples — the "it grew into a real project after all" case. `VAULT_OFFER=0` turns it off; `VAULT_OFFER_MIN_COMMITS` and `VAULT_OFFER_MIN_FILES` move the threshold; `VAULT_STARTER` points at this directory.
+
 The hook's header explains the problem it solves, what it refuses, and its limits. It also runs `vault-check.sh` and refuses a commit while a tracked file matches `.gitignore`.
+
+Registering the hook in both scopes runs it twice per commit, which is harmless in itself: its state is a fingerprint it overwrites, not a token it consumes, so both runs reach the same verdict. What matters is that the two registrations point at the **same version** — the global scope installs a copy and goes stale when the method moves, while the project scope is a symlink and stays current. `install.sh` reports whether the duplicate it finds actually differs.
 
 ## Tree
 
@@ -134,6 +146,7 @@ project_starter/
 ├── hooks/
 │   ├── pre-commit            # git hook: runs vault-check.sh
 │   └── claude-pre-commit.sh  # Claude Code hook: vault-check.sh + the drift question
+│                             #   + the adoption question in vaultless repositories
 ├── .claude/                  # created by install.sh in project scope: settings.json + hook symlink
 ├── LICENSE
 ├── .gitignore
