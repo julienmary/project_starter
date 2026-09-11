@@ -33,6 +33,13 @@
 #      question is asked again. The trailer ends up in git log, so the claim
 #      and what it says was reread stay auditable.
 #
+#      That question checks one direction only. The reverse - does the code do
+#      everything the vault promises - is CONVERGE.md, run by hand at cold-review
+#      cadence. This hook merely reminds, without ever refusing: when the "Last
+#      convergence" date in INDEX.md is more than VAULT_CONVERGE_EVERY commits
+#      old (30 by default), a non-blocking note is shown, at most once per that
+#      many commits. VAULT_CONVERGE=0 turns it off.
+#
 #   3. Whether this project should have a vault at all. Installed globally, this
 #      hook also runs in repositories that have none. Staying silent there means
 #      the method only ever reaches projects where someone already thought of it.
@@ -176,7 +183,7 @@ if [ ! -x "$TOP/vault-check.sh" ]; then
 
     STARTER=${VAULT_STARTER:-$HOME/share/project_starter}
     if [ -d "$STARTER" ]; then
-        HOW="  cp -r $STARTER/{AGENTS.md,COMPILE.md,INDEX.md,DECISIONS.md,OPEN.md,nodes,hooks,vault-check.sh,install.sh} .
+        HOW="  cp -r $STARTER/{AGENTS.md,COMPILE.md,CONVERGE.md,INDEX.md,DECISIONS.md,OPEN.md,nodes,hooks,vault-check.sh,install.sh} .
   then follow COMPILE.md to compile this project's design into the nodes,
   and run ./install.sh last (it wires this hook, which would otherwise refuse
   the vault's own first commits)."
@@ -218,11 +225,44 @@ if ! CHECK=$("$TOP/vault-check.sh" 2>&1); then
     exit 2
 fi
 
-# 2b. Drift question
+# 2b. Convergence reminder, non-blocking
+#
+#     The drift question checks one direction: the vault still tells the truth
+#     about the code. CONVERGE.md checks the other: the code does everything the
+#     vault promises. Nothing forces that pass to run, so this reminds - it never
+#     refuses. When a commit carrying project code goes through and the "Last
+#     convergence" date in INDEX.md is more than VAULT_CONVERGE_EVERY commits old
+#     (30 by default), a message is shown to the user, at most once per
+#     VAULT_CONVERGE_EVERY commits (.git/vault-converge-reminded keeps the pace).
+#     VAULT_CONVERGE=0 turns it off.
+converge_reminder() {
+    [ "${VAULT_CONVERGE:-1}" = "0" ] && return 0
+    local every commits since last pace was
+    every=${VAULT_CONVERGE_EVERY:-30}
+    commits=$(git rev-list --count HEAD 2>/dev/null) || return 0
+    last=$(sed -nE 's/^- *Last convergence: *([0-9]{4}-[0-9]{2}-[0-9]{2}).*$/\1/p' INDEX.md 2>/dev/null | head -n1)
+    if [ -n "$last" ]; then
+        since=$(git rev-list --count --since="$last 00:00" HEAD 2>/dev/null) || return 0
+    else
+        since=$commits            # no dated pass yet: the whole history is unconverged
+    fi
+    [ "$since" -lt "$every" ] && return 0
+    pace="$(git rev-parse --git-dir)/vault-converge-reminded"
+    if [ -f "$pace" ]; then
+        was=$(cat "$pace" 2>/dev/null)
+        case "$was" in ''|*[!0-9]*) was=0 ;; esac
+        [ $((commits - was)) -lt "$every" ] && return 0
+    fi
+    printf '%s\n' "$commits" > "$pace"
+    printf '{"systemMessage":"vault: %s commits since the last convergence pass. Paste CONVERGE.md to check the code against what the vault promises (VAULT_CONVERGE=0 silences this)."}\n' "$since"
+    return 0
+}
+
+# 2c. Drift question
 # Files the template ships. Content pages count as "vault updated"; method
 # files count as neither vault content nor project code.
 is_vault_content() { [[ "$1" =~ ^(INDEX\.md|DECISIONS\.md|OPEN\.md|nodes/.+\.md)$ ]]; }
-is_method_file()   { [[ "$1" =~ ^(README\.md|AGENTS\.md|COMPILE\.md|LICENSE|\.gitignore|vault-check\.sh|install\.sh|hooks/.*|\.claude/.*)$ ]]; }
+is_method_file()   { [[ "$1" =~ ^(README\.md|AGENTS\.md|COMPILE\.md|CONVERGE\.md|LICENSE|\.gitignore|vault-check\.sh|install\.sh|hooks/.*|\.claude/.*)$ ]]; }
 
 # Which files will this commit take? Staged ones, unless the command stages
 # more at execution time (git add in the same command, -a / --all / -am),
@@ -249,7 +289,10 @@ while IFS= read -r f; do
 done <<< "$FILES"
 
 [ -z "$PROJECT" ] && exit 0          # nothing outside the vault: no question
-[ "$VAULT_TOUCHED" -eq 1 ] && exit 0 # vault content moves with the change
+if [ "$VAULT_TOUCHED" -eq 1 ]; then  # vault content moves with the change
+    converge_reminder
+    exit 0
+fi
 
 # Fingerprint of the project change about to be committed: path + blob id of
 # what will be committed. Same fingerprint on the retry = same question.
@@ -296,7 +339,10 @@ if [ "$ASKED" -eq 1 ]; then
                 case "$pg" in *.md) ;; *) pg="$pg.md" ;; esac
                 [ -f "$pg" ] || REASON="$REASON  '$pg' is not a page of this vault"$'\n'
             done
-            [ -z "$REASON" ] && exit 0 ;;
+            if [ -z "$REASON" ]; then
+                converge_reminder
+                exit 0
+            fi ;;
         unchanged)
             REASON="  'Vault: unchanged' must say what was reread: Vault: unchanged (reread: nodes/x, nodes/y)"$'\n' ;;
         updated)

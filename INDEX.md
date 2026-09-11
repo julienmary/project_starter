@@ -45,3 +45,4 @@ See [[AGENTS]]. In one line: index → task nodes → listed dependencies. Nothi
 
 - Initial compilation: TODO date
 - Last cold review: TODO date
+- Last convergence: TODO date

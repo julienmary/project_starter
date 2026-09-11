@@ -12,6 +12,7 @@
 #   - INDEX.md stays under MAX_INDEX_LINES
 #   - every node in nodes/ (except _template) has a row in the INDEX.md node map
 #   - no TODO left in a page whose status is not draft
+#   - Gaps sections (written by CONVERGE.md) have a dated header and typed entries
 
 set -u
 cd "$(dirname "${BASH_SOURCE[0]}")" || exit 1
@@ -54,7 +55,7 @@ resolve() {               # resolve TARGET (no brackets): exact path, else uniqu
 # --- vault pages -------------------------------------------------------------
 
 pages=()
-for f in AGENTS.md COMPILE.md INDEX.md DECISIONS.md OPEN.md nodes/*.md; do
+for f in AGENTS.md COMPILE.md CONVERGE.md INDEX.md DECISIONS.md OPEN.md nodes/*.md; do
   [ -f "$f" ] && pages+=("$f")
 done
 [ ${#pages[@]} -eq 0 ] && { echo "no vault pages found" >&2; exit 1; }
@@ -114,6 +115,21 @@ for f in "${pages[@]}"; do
   if [ "$status" != "draft" ] && body "$f" | strip_code | grep -q 'TODO'; then
     fail "$f: status is '$status' but the page still contains TODO"
   fi
+
+  # Gaps sections (written by CONVERGE.md): dated header, typed checklist entries
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    fail "$f: gaps header must be '## Gaps (convergence YYYY-MM-DD)', got '$line'"
+  done < <(body "$f" | strip_code | grep -E '^## Gaps' \
+         | grep -vE '^## Gaps \(convergence [0-9]{4}-[0-9]{2}-[0-9]{2}\)$')
+  while IFS= read -r item; do
+    [ -z "$item" ] && continue
+    fail "$f: gap entry must be '- [ ] missing|partial — <what>, <trace>', got '$item'"
+  done < <(body "$f" | strip_code | awk '
+      /^## Gaps \(convergence / { g = 1; next }
+      /^## /                    { g = 0 }
+      g && /^- /                { print }' \
+    | grep -vE '^- \[[ x]\] (missing|partial) — .')
 done
 
 # --- index -------------------------------------------------------------------
