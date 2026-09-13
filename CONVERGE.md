@@ -9,9 +9,11 @@ depends_on:
 # CONVERGE
 
 Paste this when you want to check the **code against the vault**. It is the reverse of
-the commit-time drift question: the drift question asks "does the vault still tell the
-truth about the code?"; this pass asks "does the code do everything the vault
-promises?". Run it at the cadence of the cold review, not on every commit.
+the two commit-time questions: the drift question asks "does the vault still tell the
+truth about the code?", the sweep question ([[AMEND]]) asks "does the rest of the vault
+still agree with the decision that just changed?", and this pass asks "does the code do
+everything the vault promises?". Run it at the cadence of the cold review, not on every
+commit.
 
 ---
 

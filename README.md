@@ -101,7 +101,7 @@ Four files. Auth, UI and the rest stay on disk. If a decision is missing, the ag
 
 ### 5. Keep the vault honest
 
-The vault drifts the moment the code moves and nobody reopens `constraints.md`. Three months later it is a second stale `PROMPT.md` next to the code. Two mechanisms hold it, both wired to the commit; a third runs by hand and checks the opposite direction.
+The vault drifts the moment the code moves and nobody reopens `constraints.md`. Three months later it is a second stale `PROMPT.md` next to the code. Three mechanisms hold it, all wired to the commit; a fourth runs by hand and checks the opposite direction.
 
 **Mechanical checks, every commit.** `vault-check.sh` verifies what a script can verify: frontmatter on every page, `status` in the allowed set, `depends_on` as quoted wikilinks that resolve, every link resolving, every `status: decided` backed by a line in `DECISIONS.md`, `INDEX.md` under 80 lines with a row per node, no `TODO` outside drafts. The pre-commit hook enabled in step 0 runs it and refuses the commit on failure. Run it by hand any time:
 
@@ -115,9 +115,19 @@ The vault drifts the moment the code moves and nobody reopens `constraints.md`. 
 Vault: unchanged (reread: nodes/billing, nodes/constraints)
 ```
 
-naming the pages that were reread and still hold. A bare `Vault: unchanged` is refused, so is a page that does not exist. Change the code again and the question comes back. A commit where a node, `DECISIONS.md` or `OPEN.md` moves with the code is not asked, the diff is the proof; mark it `Vault: updated` for the log. The answer lives in `git log`, so what an agent claims to have reread stays auditable.
+naming the pages that were reread and still hold. A bare `Vault: unchanged` is refused, so is a page that does not exist. Change the code again and the question comes back. A commit where a node, `DECISIONS.md` or `OPEN.md` moves with the code is not asked *this* question, the diff is the proof for the page it touched; mark it `Vault: updated` for the log. The answer lives in `git log`, so what an agent claims to have reread stays auditable.
 
-**The convergence pass, by hand, at cold-review cadence.** The drift question checks that the vault still tells the truth about the code. Nothing above checks the reverse: that the code does everything the vault promises. That is [`CONVERGE.md`](CONVERGE.md), pasted like `COMPILE.md`: the agent builds an inventory of what the `decided` and `stable` pages assert, inspects only the code those assertions concern, and classifies every mismatch — `missing`, `partial`, `contradicted`, `uncovered`. Findings are written append-only: `missing`/`partial` land in a dated `## Gaps` section at the bottom of the node concerned (the agent working on billing sees billing's gaps, nothing else); `contradicted` and `uncovered` land in `OPEN.md`, because there a decision is owed, not code. Zero findings: **Converged**, and only the `Last convergence` date in `INDEX.md` moves. `vault-check.sh` verifies the format of Gaps sections; the Claude Code hook reminds — without ever blocking — when that date is more than `VAULT_CONVERGE_EVERY` commits old (30 by default, `VAULT_CONVERGE=0` disables). A gap travels with the commit that fixes it: checked `[x]` in its node, under `Vault: updated`.
+**The sweep question, every commit that moves a settled page.** *(Added 2026-09-13. Until then this paragraph did not exist and the sentence above ended at "the diff is the proof" — which is true of the page you touched and false of every other one.)* A decision that changes lands its consequences **elsewhere**, in the pages nobody opened: the goal line of `INDEX.md`, an out-of-scope bullet in `purpose.md`, an `OPEN.md` entry the decision closes, a deferral marker on something now delivered. The drift question cannot see them — it is scoped to the files in the commit — and the commit that changes a decision is precisely the one it skips. So `claude-pre-commit.sh` asks a second question, and asks it first: a commit that stages `DECISIONS.md` or a node whose `status` is `decided` or `stable` is refused on its first attempt, and the retry is accepted only if the message answers
+
+```
+Vault: updated (swept: INDEX, nodes/purpose, OPEN)
+```
+
+naming the pages checked against the change. A bare `Vault: updated` is refused there, and so is a page that does not exist. [`AMEND.md`](AMEND.md) is the method: grep for the **superseded** wording, never the new one. The trigger is deliberately narrow — a commit that only moves `OPEN.md`, a draft, or code is never asked — because a hook that nags gets uninstalled, and this one has questions to spend.
+
+Why a question and not a rule: a settled page that contradicts the code is not merely stale, it is an **authorisation to revert**. The next agent reads it, finds the change forbidden in writing, and undoes it in good faith.
+
+**The convergence pass, by hand, at cold-review cadence.** The drift and sweep questions check that the vault still tells the truth — about the code, and about itself. Nothing above checks the reverse: that the code does everything the vault promises. That is [`CONVERGE.md`](CONVERGE.md), pasted like `COMPILE.md`: the agent builds an inventory of what the `decided` and `stable` pages assert, inspects only the code those assertions concern, and classifies every mismatch — `missing`, `partial`, `contradicted`, `uncovered`. Findings are written append-only: `missing`/`partial` land in a dated `## Gaps` section at the bottom of the node concerned (the agent working on billing sees billing's gaps, nothing else); `contradicted` and `uncovered` land in `OPEN.md`, because there a decision is owed, not code. Zero findings: **Converged**, and only the `Last convergence` date in `INDEX.md` moves. `vault-check.sh` verifies the format of Gaps sections; the Claude Code hook reminds — without ever blocking — when that date is more than `VAULT_CONVERGE_EVERY` commits old (30 by default, `VAULT_CONVERGE=0` disables). A gap travels with the commit that fixes it: checked `[x]` in its node, under `Vault: updated`.
 
 **The adoption question, in repositories that have no vault.** Installed globally, the hook also runs where there is no vault at all. Staying silent there means the method only ever reaches projects where someone already thought of it. So once a vaultless repository has visible substance — 12 commits and 15 tracked files by default — the question is put once:
 
@@ -141,6 +151,7 @@ project_starter/
 ├── AGENTS.md                 # consumption contract for the agent
 ├── COMPILE.md                # compilation prompt to paste at the end of the discussion
 ├── CONVERGE.md               # convergence prompt: does the code keep the vault's promises?
+├── AMEND.md                  # sweep prompt: does the rest of the vault still agree with a changed decision?
 ├── INDEX.md                  # thin project map, to fill
 ├── DECISIONS.md              # what was settled, to fill
 ├── OPEN.md                   # what is not settled, to fill
@@ -148,7 +159,7 @@ project_starter/
 ├── install.sh                # wires the hooks to git and Claude Code, project or global
 ├── hooks/
 │   ├── pre-commit            # git hook: runs vault-check.sh
-│   └── claude-pre-commit.sh  # Claude Code hook: vault-check.sh + the drift question
+│   └── claude-pre-commit.sh  # Claude Code hook: vault-check.sh + the drift and sweep questions
 │                             #   + the adoption question in vaultless repositories
 ├── .claude/                  # created by install.sh in project scope: settings.json + hook symlink
 ├── LICENSE
@@ -161,7 +172,7 @@ project_starter/
 
 Two kinds of files:
 
-- **Method files**, stable, not meant to change per project: `README.md`, `AGENTS.md`, `COMPILE.md`, `CONVERGE.md`, `nodes/_template.md`, `vault-check.sh`, `install.sh`, `hooks/`.
+- **Method files**, stable, not meant to change per project: `README.md`, `AGENTS.md`, `COMPILE.md`, `CONVERGE.md`, `AMEND.md`, `nodes/_template.md`, `vault-check.sh`, `install.sh`, `hooks/`.
 - **Project files**, produced by the compilation and refined by the cold review: `INDEX.md`, `DECISIONS.md`, `OPEN.md`, `nodes/purpose.md`, `nodes/constraints.md`, plus every domain node.
 
 Domain nodes (`auth`, `billing`, `ui`...) are **not** in the template. They are born from the discussion. One file = one responsibility.

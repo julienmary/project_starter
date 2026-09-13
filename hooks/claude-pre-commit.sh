@@ -262,7 +262,7 @@ converge_reminder() {
 # Files the template ships. Content pages count as "vault updated"; method
 # files count as neither vault content nor project code.
 is_vault_content() { [[ "$1" =~ ^(INDEX\.md|DECISIONS\.md|OPEN\.md|nodes/.+\.md)$ ]]; }
-is_method_file()   { [[ "$1" =~ ^(README\.md|AGENTS\.md|COMPILE\.md|CONVERGE\.md|LICENSE|\.gitignore|vault-check\.sh|install\.sh|hooks/.*|\.claude/.*)$ ]]; }
+is_method_file()   { [[ "$1" =~ ^(README\.md|AGENTS\.md|COMPILE\.md|CONVERGE\.md|AMEND\.md|LICENSE|\.gitignore|vault-check\.sh|install\.sh|hooks/.*|\.claude/.*)$ ]]; }
 
 # Which files will this commit take? Staged ones, unless the command stages
 # more at execution time (git add in the same command, -a / --all / -am),
@@ -288,12 +288,26 @@ while IFS= read -r f; do
     fi
 done <<< "$FILES"
 
-[ -z "$PROJECT" ] && exit 0          # nothing outside the vault: no question
-if [ "$VAULT_TOUCHED" -eq 1 ]; then  # vault content moves with the change
-    converge_reminder
-    exit 0
-fi
-
+# Which of the staged vault files are **contracts**: DECISIONS.md, or a node whose staged
+# content declares `status: decided` or `status: stable`. A draft promises nothing, and
+# OPEN.md is where undecided things are supposed to live — neither can be contradicted.
+CONTRACTS=""
+while IFS= read -r f; do
+    [ -z "$f" ] && continue
+    is_vault_content "$f" || continue
+    case "$f" in
+        DECISIONS.md) CONTRACTS="$CONTRACTS$f"$'\n'; continue ;;
+        nodes/*) ;;
+        *) continue ;;
+    esac
+    if [ "$STAGE_MODE" = "index" ]; then
+        HEAD_OF=$(git show ":$f" 2>/dev/null | head -n 12)
+    else
+        HEAD_OF=$(head -n 12 -- "$f" 2>/dev/null)
+    fi
+    printf '%s\n' "$HEAD_OF" | grep -qE '^status: (decided|stable)[[:space:]]*$' \
+        && CONTRACTS="$CONTRACTS$f"$'\n'
+done <<< "$FILES"
 # Fingerprint of the project change about to be committed: path + blob id of
 # what will be committed. Same fingerprint on the retry = same question.
 fingerprint() {
@@ -308,23 +322,89 @@ fingerprint() {
             blob="deleted"
         fi
         printf '%s %s\n' "$f" "${blob:-deleted}"
-    done <<< "$PROJECT" | git hash-object --stdin
+    done <<< "$1" | git hash-object --stdin
 }
-FP=$(fingerprint)
-STATE="$(git rev-parse --git-dir)/vault-question"
-ASKED=0
-[ -f "$STATE" ] && [ "$(cat "$STATE")" = "$FP" ] && ASKED=1
-
 # The answer: a "Vault: ..." trailer in the message. Own line (heredoc,
 # multi-line -m), a whole -m argument, or the previous message on --amend
 # without a new one.
 Q='["'"'"']'
-T='(updated|unchanged( \(reread: [^)]+\))?)'
+T='(updated( \(swept: [^)]+\))?|unchanged( \(reread: [^)]+\))?)'
 TRAILER=$(printf '%s\n' "$COMMAND" | sed -nE "s/^[[:space:]]*Vault: $T[[:space:]]*$Q?[[:space:]]*\$/\1/p" | head -n1)
 [ -z "$TRAILER" ] && TRAILER=$(printf '%s\n' "$COMMAND" | sed -nE "s/.*-m[[:space:]]+${Q}Vault: $T$Q.*/\1/p" | head -n1)
 if [ -z "$TRAILER" ] && [[ "$COMMAND" == *"--amend"* ]] && [[ "$COMMAND" != *" -m"* ]] && [[ "$COMMAND" != *"-F"* ]]; then
     TRAILER=$(git log -1 --format=%B 2>/dev/null | sed -nE "s/^Vault: $T\$/\1/p" | head -n1)
 fi
+
+# The sweep question, on every commit that moves a contract page.
+#
+# The drift question below is scoped to the files in the commit, and it is skipped
+# entirely when vault content moves with them — "the diff is the proof". That is true of
+# the page you touched and false of every other one: a decision that changes lands its
+# consequences elsewhere, in the pages nobody opened. The commit that changes a decision
+# is therefore precisely the one the drift question leaves alone. A settled page that
+# contradicts the code is not merely stale, it is an authorisation to revert: the next
+# agent reads it, finds the change forbidden in writing, and undoes it in good faith.
+#
+# Narrow on purpose. Only `decided`/`stable` nodes and DECISIONS.md trigger it; a commit
+# that only moves OPEN.md, a draft or code is never asked. A hook that nags gets
+# uninstalled, and this one has one question to spend.
+if [ -n "$CONTRACTS" ]; then
+    SFP=$(fingerprint "$CONTRACTS")
+    SSTATE="$(git rev-parse --git-dir)/vault-sweep"
+    SASKED=0
+    [ -f "$SSTATE" ] && [ "$(cat "$SSTATE")" = "$SFP" ] && SASKED=1
+    SREASON=""
+    if [ "$SASKED" -eq 1 ]; then
+        case "$TRAILER" in
+            "updated (swept: "*)
+                SLIST=${TRAILER#updated (swept: }; SLIST=${SLIST%)}
+                IFS=',' read -r -a SPAGES <<< "$SLIST"
+                for pg in "${SPAGES[@]}"; do
+                    pg=$(printf '%s' "$pg" | sed -E 's/^[[:space:]]+//; s/[[:space:]]+$//')
+                    case "$pg" in *.md) ;; *) pg="$pg.md" ;; esac
+                    [ -f "$pg" ] || SREASON="$SREASON  '$pg' is not a page of this vault"$'\n'
+                done
+                if [ -z "$SREASON" ]; then
+                    printf '%s' "$SFP" > "$SSTATE"
+                    converge_reminder
+                    exit 0
+                fi ;;
+            updated)
+                SREASON="  'Vault: updated' does not say what else was checked against this change"$'\n' ;;
+        esac
+    fi
+    printf '%s' "$SFP" > "$SSTATE"
+    cat >&2 <<MSG
+BLOCKED: this commit changes a settled page. Does the rest of the vault still agree with it?
+
+Contract pages in this commit:
+$(printf '%s' "$CONTRACTS" | sed 's/^/  /')
+Sweep before committing (AMEND.md has the full method):
+  1. Say in one sentence what the decision now asserts, and what it asserts **instead of**.
+  2. Grep the vault for the **superseded** wording, never the new one: the phrases it
+     replaces, the constants it moves, the OPEN.md entries it closes, deferral markers
+     ("after v1", "deferred") for anything now delivered, INDEX.md's goal and out-of-scope
+     lines, and the test matrix.
+  3. Fix every page it made false, in this commit, keeping the replaced sentence dated:
+     *(Amended YYYY-MM-DD: this line said "...".)*
+  4. Commit again and answer on its own line:
+       Vault: updated (swept: INDEX, nodes/purpose, OPEN)
+     naming the pages you checked. A bare "Vault: updated" is refused here.
+$(printf '%s' "$SREASON")
+MSG
+    exit 2
+fi
+
+[ -z "$PROJECT" ] && exit 0          # nothing outside the vault: no question
+if [ "$VAULT_TOUCHED" -eq 1 ]; then  # vault content moves with the change
+    converge_reminder
+    exit 0
+fi
+FP=$(fingerprint "$PROJECT")
+STATE="$(git rev-parse --git-dir)/vault-question"
+ASKED=0
+[ -f "$STATE" ] && [ "$(cat "$STATE")" = "$FP" ] && ASKED=1
+
 
 # Validate the answer. Only "unchanged (reread: ...)" with existing pages is a
 # valid answer here: "updated" without vault content in the commit is a lie.
