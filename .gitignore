@@ -13,3 +13,7 @@ Thumbs.db
 
 # Claude Code personal overrides (.claude/settings.json and the hook symlink are versioned)
 .claude/settings.local.json
+
+# Local, per-machine: direnv identity override, never committed.
+.envrc
+.direnv/
