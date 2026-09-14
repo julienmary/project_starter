@@ -55,7 +55,7 @@ resolve() {               # resolve TARGET (no brackets): exact path, else uniqu
 # --- vault pages -------------------------------------------------------------
 
 pages=()
-for f in AGENTS.md COMPILE.md CONVERGE.md INDEX.md DECISIONS.md OPEN.md nodes/*.md; do
+for f in AGENTS.md COMPILE.md CONVERGE.md AMEND.md INDEX.md DECISIONS.md OPEN.md nodes/*.md; do
   [ -f "$f" ] && pages+=("$f")
 done
 [ ${#pages[@]} -eq 0 ] && { echo "no vault pages found" >&2; exit 1; }
